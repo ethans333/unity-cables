@@ -6,24 +6,7 @@ using static Unity.Mathematics.math;
 
 public class CatmullRomSpline : ISpline
 {
-    private readonly List<float3> controlPoints;
-
-    public CatmullRomSpline(IReadOnlyList<float3> points)
-    {
-        if (points == null)
-            throw new ArgumentNullException(nameof(points));
-
-        if (points.Count < 2)
-            throw new ArgumentException("A Catmull-Rom spline requires at least two control points.", nameof(points));
-
-        controlPoints = new List<float3>(points.Count + 2)
-        {
-            points[0] // Duplicate the first point
-        };
-
-        controlPoints.AddRange(points);
-        controlPoints.Add(points[^1]); // Duplicate the last point
-    }
+    private List<float3> controlPoints;
     
     public float3 EvaluatePosition(float t)
     {
@@ -52,6 +35,50 @@ public class CatmullRomSpline : ISpline
     public float3 EvaluateNormal(float t)
     {
         throw new System.NotImplementedException();
+    }
+
+    public void SetPoints(float3[] points)
+    {
+        if (points == null)
+            throw new ArgumentNullException(nameof(points));
+
+        if (points.Length < 2)
+            throw new ArgumentException("A Catmull-Rom spline requires at least two control points.", nameof(points));
+
+        controlPoints = new List<float3>(points.Length + 2)
+        {
+            // Duplicate the first point.
+            points[0]
+        };
+
+        // Add all points.
+        controlPoints.AddRange(points);
+        
+        // Duplicate the last point.
+        controlPoints.Add(points[^1]);
+    }
+
+    public void SetPoint(int i, float3 p)
+    {
+        int N  = controlPoints.Count;     // Actual count.
+        int oN = controlPoints.Count - 2; // Original count.
+
+        // End edge case.
+        if (i == oN-1)
+        {
+            controlPoints[N - 2] = p;
+            controlPoints[N - 1] = p;
+        }
+        // Start edge case.
+        else if (i == 0)
+        {
+            controlPoints[0] = p;
+            controlPoints[1] = p;
+        }
+        else
+        {
+            controlPoints[i] = p;
+        }
     }
 
     private float3 CatmullRom(float3 p0, float3 p1, float3 p2, float3 p3, float t)

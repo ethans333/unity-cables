@@ -17,15 +17,34 @@ public class Cable : MonoBehaviour
     
     private void Awake()
     {
-        spline = new CatmullRomSpline(GetControlPointPositions());
-        lineRenderer = GetComponent<LineRenderer>();
+        spline = new CatmullRomSpline();
+        spline.SetPoints(GetControlPointPositions());
     }
 
     private void Start()
     {
+        RenderDebugLine();
+    }
+
+    private float3[] GetControlPointPositions()
+    {
+        return controlPoints
+            .Select(x => (float3)x.transform.position)
+            .ToArray();
+    }
+
+    private void RenderDebugLine()
+    {
+        // Get reference to line renderer.
+        if (lineRenderer == null)
+        {
+            lineRenderer = GetComponent<LineRenderer>();
+        }
+        
         float3[] points = new float3[numberOfSegments];
         lineRenderer.positionCount = numberOfSegments;
 
+        // Copy points from spline into line renderer.
         for (int i = 0; i < numberOfSegments; i++)
         {
             float t =  i / (float)numberOfSegments;
@@ -34,12 +53,5 @@ public class Cable : MonoBehaviour
             
             lineRenderer.SetPosition(i, points[i]);
         }
-    }
-
-    private List<float3> GetControlPointPositions()
-    {
-        return controlPoints
-            .Select(x => (float3)x.transform.position)
-            .ToList();
     }
 }
