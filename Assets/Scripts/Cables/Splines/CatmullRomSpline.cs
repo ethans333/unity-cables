@@ -77,7 +77,7 @@ public class CatmullRomSpline : ISpline
         }
         else
         {
-            controlPoints[i] = p;
+            controlPoints[i+1] = p;
         }
     }
 

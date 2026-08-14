@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 using Unity.Mathematics;
 using UnityEngine;
@@ -14,9 +15,11 @@ public class Cable : MonoBehaviour
 
     private ISpline spline;
     private LineRenderer lineRenderer;
+    private List<float3> previousControlPoints;
     
     private void Awake()
     {
+        previousControlPoints = GetControlPointPositions().ToList();
         spline = new CatmullRomSpline();
         spline.SetPoints(GetControlPointPositions());
     }
@@ -24,6 +27,14 @@ public class Cable : MonoBehaviour
     private void Start()
     {
         RenderDebugLine();
+    }
+
+    private void Update()
+    {
+        if (ControlPointsMoved())
+        {
+            RenderDebugLine();
+        }
     }
 
     private float3[] GetControlPointPositions()
@@ -53,5 +64,26 @@ public class Cable : MonoBehaviour
             
             lineRenderer.SetPosition(i, points[i]);
         }
+    }
+
+    private bool ControlPointsMoved()
+    {
+        bool changed = false;
+        
+        for (int i = 0; i < controlPoints.Count; i++)
+        {
+            float3 position = controlPoints[i].transform.position;
+
+            // Check if position of control point changed.
+            if (!math.all(position == previousControlPoints[i]))
+            {
+                // Update control point in spline if so.
+                previousControlPoints[i] = position;
+                spline.SetPoint(i, position);
+                changed = true;
+            }
+        }
+
+        return changed;
     }
 }
