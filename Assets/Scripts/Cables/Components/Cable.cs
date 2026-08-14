@@ -4,36 +4,63 @@ using System.Linq;
 using Unity.Mathematics;
 using UnityEngine;
 
-[RequireComponent(typeof(LineRenderer))]
+[ExecuteAlways]
+[RequireComponent(typeof(MeshFilter))]
 public class Cable : MonoBehaviour
 {
     [SerializeField]
-    private List<ControlPoint> controlPoints;
+    private List<Transform> controlPoints;
     
     [SerializeField]
     private int numberOfSegments = 100;
+    
+    [SerializeField]
+    private int sides = 12;
+
+    [SerializeField]
+    private float radius = 0.01f;
 
     private ISpline spline;
     private LineRenderer lineRenderer;
     private List<float3> previousControlPoints;
     
-    private void Awake()
+    private MeshFilter meshFilter;
+    private TubeMeshBuilder meshBuilder;
+
+    void Initialize()
     {
         previousControlPoints = GetControlPointPositions().ToList();
+        
         spline = new CatmullRomSpline();
         spline.SetPoints(GetControlPointPositions());
+        
+        meshFilter = GetComponent<MeshFilter>();
+        meshBuilder = new TubeMeshBuilder(sides, radius);
+    }
+    
+    private void Awake()
+    {
+        Initialize();
+        BuildMesh();
     }
 
-    private void Start()
+    private void OnValidate()
     {
-        RenderDebugLine();
+        // On Engine start points aren't ready yet.
+        if (controlPoints == null || controlPoints.Count == 0 || controlPoints.Any(x => x == null))
+        {
+            return;
+        }
+
+        Initialize();
+        BuildMesh();
     }
 
     private void Update()
     {
         if (ControlPointsMoved())
         {
-            RenderDebugLine();
+            BuildMesh();
         }
     }
 
@@ -44,26 +71,21 @@ public class Cable : MonoBehaviour
             .ToArray();
     }
 
-    private void RenderDebugLine()
+    private void BuildMesh()
     {
-        // Get reference to line renderer.
-        if (lineRenderer == null)
-        {
-            lineRenderer = GetComponent<LineRenderer>();
-        }
-        
-        float3[] points = new float3[numberOfSegments];
-        lineRenderer.positionCount = numberOfSegments;
+        float3[] positions = new float3[numberOfSegments];
+        float3[] tangents  = new float3[numberOfSegments];
 
         // Copy points from spline into line renderer.
         for (int i = 0; i < numberOfSegments; i++)
         {
             float t =  i / (float)numberOfSegments;
             
-            points[i] = spline.EvaluatePosition(t);
-            
-            lineRenderer.SetPosition(i, points[i]);
+            positions[i] = transform.InverseTransformPoint(spline.EvaluatePosition(t));
+            tangents[i]  = transform.InverseTransformDirection(spline.EvaluateTangent(t));
         }
+        
+        meshFilter.mesh = meshBuilder.Build(positions, tangents);
     }
 
     private bool ControlPointsMoved()
@@ -72,7 +94,7 @@ public class Cable : MonoBehaviour
         
         for (int i = 0; i < controlPoints.Count; i++)
         {
-            float3 position = controlPoints[i].transform.position;
+            float3 position = controlPoints[i].position;
 
             // Check if position of control point changed.
             if (!math.all(position == previousControlPoints[i]))
@@ -85,5 +107,13 @@ public class Cable : MonoBehaviour
         }
 
         return changed;
+    }
+
+    private void OnDrawGizmos()
+    {
+        foreach (Transform p in controlPoints)
+        {
+            Gizmos.DrawSphere(p.position, radius * 2f);
+        }
     }
 }

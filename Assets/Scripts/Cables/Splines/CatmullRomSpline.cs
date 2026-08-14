@@ -32,11 +32,6 @@ public class CatmullRomSpline : ISpline
             lT);
     }
 
-    public float3 EvaluateNormal(float t)
-    {
-        throw new System.NotImplementedException();
-    }
-
     public void SetPoints(float3[] points)
     {
         if (points == null)

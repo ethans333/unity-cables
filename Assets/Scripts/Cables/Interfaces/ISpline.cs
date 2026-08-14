@@ -7,5 +7,4 @@ public interface ISpline
     void SetPoint(int i, float3 p);
     float3 EvaluatePosition(float t);
     float3 EvaluateTangent(float t);
-    float3 EvaluateNormal(float t);
 }
