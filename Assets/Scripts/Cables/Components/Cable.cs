@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Unity.Mathematics;
 using UnityEngine;
+using UnityEngine.Serialization;
 
 [ExecuteAlways]
 [RequireComponent(typeof(MeshFilter))]
@@ -19,6 +20,9 @@ public class Cable : MonoBehaviour
 
     [SerializeField]
     private float radius = 0.01f;
+    
+    [FormerlySerializedAs("showPointGizmos")] [SerializeField]
+    private bool showControlPointGizmos = true;
 
     private ISpline spline;
     private LineRenderer lineRenderer;
@@ -47,11 +51,8 @@ public class Cable : MonoBehaviour
     private void OnValidate()
     {
         // On Engine start points aren't ready yet.
-        if (controlPoints == null || controlPoints.Count == 0 || controlPoints.Any(x => x == null))
-        {
-            return;
-        }
-
+        if (!ControlPointsValid()) return;
+        
         Initialize();
         BuildMesh();
     }
@@ -62,6 +63,13 @@ public class Cable : MonoBehaviour
         {
             BuildMesh();
         }
+    }
+
+    private bool ControlPointsValid()
+    {
+        return controlPoints != null && 
+               controlPoints.Count > 0 && 
+               controlPoints.Any(x => x == null);
     }
 
     private float3[] GetControlPointPositions()
@@ -111,9 +119,16 @@ public class Cable : MonoBehaviour
 
     private void OnDrawGizmos()
     {
+        if (!showControlPointGizmos) return;
+        
         foreach (Transform p in controlPoints)
         {
             Gizmos.DrawSphere(p.position, radius * 2f);
         }
+    }
+
+    public List<Transform> GetControlPoints()
+    {
+        return controlPoints;
     }
 }
