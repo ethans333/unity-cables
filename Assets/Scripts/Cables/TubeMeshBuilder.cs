@@ -13,6 +13,8 @@ public class TubeMeshBuilder
     private List<Vector3> normals;
     private List<Vector2> uvs;
     private List<int>     triangles;
+
+    private int previousSegments;
     
     public TubeMeshBuilder(int sides, float radius)
     {
@@ -27,12 +29,9 @@ public class TubeMeshBuilder
     {
         int segments = positions.Length;
         int vertexCount = segments * sides;
-        int indexCount = (segments - 1) * sides * 6;
         
         vertices  = new List<Vector3>(vertexCount);
         normals   = new List<Vector3>(vertexCount);
-        uvs       = new List<Vector2>(vertexCount);
-        triangles = new List<int>(indexCount);
         
         for (int i = 0; i < segments; i++)
         {
@@ -53,12 +52,47 @@ public class TubeMeshBuilder
 
                 vertices.Add(vertex);
                 normals.Add(math.normalize(direction));
-                uvs.Add(new Vector2(j / (float)sides, 
-                                    i / (float)(segments - 1)));
             }
         }
         
-        // Connect rings
+        mesh.SetVertices(vertices);
+        mesh.SetNormals(normals);
+
+        if (NewSegments(segments))
+        {
+            // Only regenerate triangles and UVs when number of segments changes.
+            GenerateTriangles(segments);
+            GenerateUVs(segments);
+            
+            mesh.SetUVs(0, uvs);
+            mesh.SetTriangles(triangles, 0);
+        }
+        
+        mesh.RecalculateBounds();
+
+        return mesh;
+    }
+
+    private float3 CalculateNormal(float3 tangent)
+    {
+        /*
+         * As your cable curves, this can cause the tube to rotate/twist unexpectedly.
+         * Once you see the basic tube rendering, the next thing I'd change is the frame
+         * calculation to use the previous ring's normal and transport it along the curve.
+         * That's the piece that will make your cable look stable and professional rather
+         * than like a tube whose orientation is being recalculated independently at every
+         * sample.
+         */
+        float3 reference = math.up();
+        float3 normal = math.normalize(math.cross(tangent, reference));
+
+        return normal;
+    }
+
+    private void GenerateTriangles(int segments)
+    {
+        triangles = new List<int>((segments - 1) * sides * 6);
+        
         for (int i = 0; i < segments - 1; i++)
         {
             int currentRing = i * sides;
@@ -82,32 +116,29 @@ public class TubeMeshBuilder
                 triangles.Add(currentNextRing);
             }
         }
-        
-        mesh.Clear();
-
-        mesh.SetVertices(vertices);
-        mesh.SetNormals(normals);
-        mesh.SetUVs(0, uvs);
-        mesh.SetTriangles(triangles, 0);
-
-        mesh.RecalculateBounds();
-
-        return mesh;
     }
 
-    private float3 CalculateNormal(float3 tangent)
+    private void GenerateUVs(int segments)
     {
-        /*
-         * As your cable curves, this can cause the tube to rotate/twist unexpectedly.
-         * Once you see the basic tube rendering, the next thing I'd change is the frame
-         * calculation to use the previous ring's normal and transport it along the curve.
-         * That's the piece that will make your cable look stable and professional rather
-         * than like a tube whose orientation is being recalculated independently at every
-         * sample.
-         */
-        float3 reference = math.up();
-        float3 normal = math.normalize(math.cross(tangent, reference));
+        uvs = new List<Vector2>(segments * sides);
+        
+        for (int i = 0; i < segments; i++)
+        {
+            for (int j = 0; j < sides; j++)
+            {
+                uvs.Add(new Vector2(j / (float)sides, i / (float)(segments - 1)));
+            }
+        }
+    }
 
-        return normal;
+    private bool NewSegments(int segments)
+    {
+        if (previousSegments != segments)
+        {
+            previousSegments = segments;
+            return true;
+        }
+        
+        return false;
     }
 }
