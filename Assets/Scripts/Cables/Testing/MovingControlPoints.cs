@@ -3,6 +3,9 @@ using UnityEngine;
 
 public class MovingControlPoints : MonoBehaviour
 {
+    [SerializeField, Range(0f, 10f)]
+    private float intensity = 1f;
+    
     private Cable cable;
 
     private void Awake()
@@ -12,12 +15,15 @@ public class MovingControlPoints : MonoBehaviour
 
     private void Update()
     {
+        SinWaveOnControlPoints();
+    }
+
+    private void SinWaveOnControlPoints()
+    {
         foreach (Transform p in cable.GetControlPoints())
         {
-            p.position = new Vector3(
-                p.position.x, 
-                (float)Math.Sin(Time.realtimeSinceStartup + p.position.x + p.position.z), 
-                p.position.z);
+            float newY = (float)Math.Sin(Time.realtimeSinceStartup + p.position.x + p.position.z) * intensity;
+            p.position = new Vector3(p.position.x, newY, p.position.z);
         }
     }
 }

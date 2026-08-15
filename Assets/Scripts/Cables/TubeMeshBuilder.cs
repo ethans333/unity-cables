@@ -7,6 +7,8 @@ public class TubeMeshBuilder
     private int sides;
     private float radius;
     
+    private readonly Mesh mesh;
+    
     private List<Vector3> vertices;
     private List<Vector3> normals;
     private List<Vector2> uvs;
@@ -16,18 +18,21 @@ public class TubeMeshBuilder
     {
         this.sides = sides;
         this.radius = radius;
+        
+        mesh = new Mesh();
+        mesh.MarkDynamic();
     }
     
     public Mesh Build(float3[] positions, float3[] tangents)
     {
-        Mesh mesh = new Mesh();
-        
         int segments = positions.Length;
+        int vertexCount = segments * sides;
+        int indexCount = (segments - 1) * sides * 6;
         
-        vertices  = new List<Vector3>();
-        normals   = new List<Vector3>();
-        uvs       = new List<Vector2>();
-        triangles = new List<int>();
+        vertices  = new List<Vector3>(vertexCount);
+        normals   = new List<Vector3>(vertexCount);
+        uvs       = new List<Vector2>(vertexCount);
+        triangles = new List<int>(indexCount);
         
         for (int i = 0; i < segments; i++)
         {
