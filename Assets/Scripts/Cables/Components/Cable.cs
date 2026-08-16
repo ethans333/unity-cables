@@ -10,9 +10,6 @@ using UnityEngine.Serialization;
 public class Cable : MonoBehaviour
 {
     [SerializeField]
-    private List<Transform> controlPoints;
-    
-    [SerializeField]
     private int numberOfSegments = 100;
     
     [SerializeField]
@@ -21,25 +18,32 @@ public class Cable : MonoBehaviour
     [SerializeField]
     private float radius = 0.01f;
     
-    [FormerlySerializedAs("showPointGizmos")] [SerializeField]
+    [SerializeField]
     private bool showControlPointGizmos = true;
-
+    
+    [NonSerialized]
+    public List<ControlPoint> controlPoints;
+    
     private ISpline spline;
     private LineRenderer lineRenderer;
-    private List<float3> previousControlPoints;
+    private List<float3> previousControlPointPositions;
     
     private MeshFilter meshFilter;
     private TubeMeshBuilder meshBuilder;
 
+    private CablePhysics physics;
+
     void Initialize()
     {
-        previousControlPoints = GetControlPointPositions().ToList();
+        controlPoints = GetComponentsInChildren<ControlPoint>().ToList();
+        previousControlPointPositions = GetControlPointPositions().ToList();
         
         spline = new CatmullRomSpline();
         spline.SetPoints(GetControlPointPositions());
         
         meshFilter = GetComponent<MeshFilter>();
         meshBuilder = new TubeMeshBuilder(sides, radius);
+        physics = new CablePhysics(controlPoints, radius, 0f, 0.3f);
     }
     
     private void Awake()
@@ -59,6 +63,16 @@ public class Cable : MonoBehaviour
 
     private void Update()
     {
+        if (Application.isPlaying)
+        {
+            int substeps = 20;
+            
+            for (int i = 0; i < substeps; i++)
+            {
+                physics.SimulatePhysics(Time.deltaTime / substeps);
+            }
+        }
+        
         if (ControlPointsMoved())
         {
             BuildMesh();
@@ -74,9 +88,7 @@ public class Cable : MonoBehaviour
 
     private float3[] GetControlPointPositions()
     {
-        return controlPoints
-            .Select(x => (float3)x.transform.position)
-            .ToArray();
+        return controlPoints.Select(x => (float3)x.transform.position).ToArray();
     }
 
     private void BuildMesh()
@@ -102,13 +114,13 @@ public class Cable : MonoBehaviour
         
         for (int i = 0; i < controlPoints.Count; i++)
         {
-            float3 position = controlPoints[i].position;
+            float3 position = controlPoints[i].transform.position;
 
             // Check if position of control point changed.
-            if (!math.all(position == previousControlPoints[i]))
+            if (!math.all(position == previousControlPointPositions[i]))
             {
                 // Update control point in spline if so.
-                previousControlPoints[i] = position;
+                previousControlPointPositions[i] = position;
                 spline.SetPoint(i, position);
                 changed = true;
             }
@@ -121,14 +133,9 @@ public class Cable : MonoBehaviour
     {
         if (!showControlPointGizmos) return;
         
-        foreach (Transform p in controlPoints)
+        foreach (ControlPoint p in controlPoints)
         {
-            Gizmos.DrawSphere(p.position, radius * 2f);
+            Gizmos.DrawSphere(p.transform.position, radius * 2f);
         }
-    }
-
-    public List<Transform> GetControlPoints()
-    {
-        return controlPoints;
     }
 }

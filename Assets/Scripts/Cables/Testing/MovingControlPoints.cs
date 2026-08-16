@@ -22,14 +22,15 @@ public class MovingControlPoints : MonoBehaviour
 
     private void SinWaveOnControlPoints()
     {
-        foreach (Transform p in cable.GetControlPoints())
+        foreach (ControlPoint point in cable.controlPoints)
         {
-            float delta = (float)Math.Sin(Time.realtimeSinceStartup + p.position.x + p.position.z);
+            Vector3 p = point.transform.position;
+            float delta = (float)Math.Sin(Time.realtimeSinceStartup + p.x + p.z);
             
-            p.position = new Vector3(
-                p.position.x, 
+            point.transform.position = new Vector3(
+                p.x, 
                 delta * intensity + originalPosition.y, 
-                p.position.z);
+                p.z);
         }
     }
 }
