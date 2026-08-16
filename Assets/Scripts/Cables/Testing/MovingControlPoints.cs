@@ -6,11 +6,13 @@ public class MovingControlPoints : MonoBehaviour
     [SerializeField, Range(0f, 10f)]
     private float intensity = 1f;
     
+    private Vector3 originalPosition;
     private Cable cable;
 
     private void Awake()
     {
         cable = GetComponent<Cable>();
+        originalPosition = cable.transform.position;
     }
 
     private void Update()
@@ -22,8 +24,12 @@ public class MovingControlPoints : MonoBehaviour
     {
         foreach (Transform p in cable.GetControlPoints())
         {
-            float newY = (float)Math.Sin(Time.realtimeSinceStartup + p.position.x + p.position.z) * intensity;
-            p.position = new Vector3(p.position.x, newY, p.position.z);
+            float delta = (float)Math.Sin(Time.realtimeSinceStartup + p.position.x + p.position.z);
+            
+            p.position = new Vector3(
+                p.position.x, 
+                delta * intensity + originalPosition.y, 
+                p.position.z);
         }
     }
 }
