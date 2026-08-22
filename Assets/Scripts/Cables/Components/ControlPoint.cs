@@ -7,7 +7,7 @@ public class ControlPoint : MonoBehaviour
     public float mass = 1f;
     
     [SerializeField]
-    public bool IsFixed = false;
+    public bool isFixed = true;
     
     [NonSerialized]
     public Vector3 velocity;
