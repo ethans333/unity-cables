@@ -8,17 +8,22 @@ public class CablePhysics
 
     private float3[] previousPositions;
     private bool[] isPinned;
+    private float[] restLengths;
+    private float[] bendRestLengths;
+    private float[] bendStiffness;
 
     private readonly int nodeCount;
     private readonly float radius;
     private readonly float restitution;
     private readonly float friction;
-    private readonly float restLength;
 
     private const int constraintIterations = 8;
     private const float maxSpeed = 5f;
 
     private const float velocityDamping = 0.01f;
+
+    private const float anchorBendStiffness = 0.9f;
+    private const int anchorBendFalloffNodes = 15;
 
     private readonly LayerMask collisionMask = ~0;
     private static readonly Collider[] overlapBuffer = new Collider[16];
@@ -32,23 +37,24 @@ public class CablePhysics
 
     /// <param name="initialPositions">World-space positions for every simulation node,
     /// one per segment. Sample these from your spline at construction time.</param>
+    /// <param name="restitution">How much the cable bounces when colliding with itself
+    /// or other colliders (jiggliness).</param>
     public CablePhysics(float3[] initialPositions, float radius, float restitution, float friction)
     {
         nodeCount = initialPositions.Length;
         positions = (float3[])initialPositions.Clone();
         previousPositions = (float3[])initialPositions.Clone();
         isPinned = new bool[nodeCount];
+        restLengths = new float[nodeCount - 1];
+        bendRestLengths = new float[nodeCount];
+        bendStiffness = new float[nodeCount];
 
         this.radius = radius;
         this.restitution = restitution;
         this.friction = friction;
 
-        // Rest length is derived from the initial spacing so the chain starts unstressed
-        // regardless of how numberOfSegments was chosen.
-        float total = 0f;
-        for (int i = 1; i < nodeCount; i++)
-            total += math.distance(initialPositions[i], initialPositions[i - 1]);
-        restLength = nodeCount > 1 ? total / (nodeCount - 1) : 0f;
+        CalculateRestLengths();
+        CalculateBendRestLengths();
     }
 
     /// <summary>
@@ -58,9 +64,15 @@ public class CablePhysics
     public void SetAnchor(int nodeIndex, Transform anchor)
     {
         anchors.RemoveAll(a => a.nodeIndex == nodeIndex);
-        if (anchor != null)
+
+        if (anchor)
+        {
             anchors.Add((nodeIndex, anchor));
+        }
+
         isPinned[nodeIndex] = anchor != null;
+
+        ConfigureAnchorBendStiffness();
     }
 
     public void PinNode(int nodeIndex)
@@ -101,11 +113,57 @@ public class CablePhysics
         for (int i = 0; i < constraintIterations; i++)
         {
             SolveDistanceConstraints();
+            SolveBendingConstraints();
             ApplyAnchors();
             ProjectOutOfColliders();
         }
 
         ApplyCollisionResponse();
+    }
+    
+    private void CalculateRestLengths()
+    {
+        for (int i = 0; i < nodeCount - 1; i++)
+        {
+            restLengths[i] = math.distance(positions[i], positions[i + 1]);
+        }
+    }
+
+    private void CalculateBendRestLengths()
+    {
+        for (int i = 1; i < nodeCount - 1; i++)
+        {
+            bendRestLengths[i] =
+                math.distance(
+                    positions[i - 1],
+                    positions[i + 1]);
+        }
+    }
+
+    private void ConfigureAnchorBendStiffness()
+    {
+        System.Array.Clear(bendStiffness, 0, bendStiffness.Length);
+
+        foreach (var (anchorNode, _) in anchors)
+        {
+            for (int i = 1; i < nodeCount - 1; i++)
+            {
+                int distanceFromAnchor = math.abs(i - anchorNode);
+
+                if (distanceFromAnchor > anchorBendFalloffNodes)
+                {
+                    continue;
+                }
+
+                float t = distanceFromAnchor / (float)anchorBendFalloffNodes;
+
+                float stiffness = 1f - math.smoothstep(0f, 1f, t);
+
+                stiffness *= anchorBendStiffness;
+
+                bendStiffness[i] = math.max(bendStiffness[i], stiffness);
+            }
+        }
     }
 
     private void ApplyAnchors()
@@ -156,7 +214,7 @@ public class CablePhysics
             float dist = math.length(delta);
             if (dist < 1e-6f) continue;
 
-            float error = (dist - restLength) / dist;
+            float error = (dist - restLengths[i]) / dist;
             float3 correction = delta * error * 0.5f;
 
             if (aPinned)
@@ -175,6 +233,48 @@ public class CablePhysics
         }
     }
 
+    private void SolveBendingConstraints()
+    {
+        for (int i = 1; i < nodeCount - 1; i++)
+        {
+            float stiffness = bendStiffness[i];
+
+            if (stiffness <= 0f) continue;
+
+            bool aPinned = isPinned[i - 1];
+            bool bPinned = isPinned[i];
+            bool cPinned = isPinned[i + 1];
+
+            if (aPinned && bPinned && cPinned) continue;
+
+            float3 a = positions[i - 1];
+            float3 c = positions[i + 1];
+
+            float3 delta = c - a;
+            float distance = math.length(delta);
+
+            if (distance < 1e-6f) continue;
+
+            float restDistance = bendRestLengths[i];
+            float error = (distance - restDistance) / distance;
+            float3 correction = delta * error * 0.5f * stiffness;
+
+            if (aPinned && !cPinned)
+            {
+                positions[i + 1] -= correction * 2f;
+            }
+            else if (cPinned && !aPinned)
+            {
+                positions[i - 1] += correction * 2f;
+            }
+            else if (!aPinned && !cPinned)
+            {
+                positions[i - 1] += correction;
+                positions[i + 1] -= correction;
+            }
+        }
+    }
+
     // Collider.ClosestPoint only supports Box/Sphere/Capsule and CONVEX MeshColliders.
     // Called on anything else (e.g. a raw, non-convex ground/terrain MeshCollider) it
     // silently returns the query point itself - which our solver was reading as "dead
@@ -188,9 +288,9 @@ public class CablePhysics
             {
                 Debug.LogWarning(
                     $"CablePhysics: '{collider.name}' is a non-convex MeshCollider, which doesn't " +
-                    "support accurate closest-point queries. Enable 'Convex' on it (fine for simple/" +
-                    "flat shapes) or swap in a Box/Sphere/Capsule collider for anything the cable " +
-                    "should collide with. Falling back to a coarse bounds-based approximation for now.",
+                    $"support accurate closest-point queries. Enable 'Convex' on it (fine for simple/" +
+                    $"flat shapes) or swap in a Box/Sphere/Capsule collider for anything the cable " +
+                    $"should collide with. Falling back to a coarse bounds-based approximation for now.",
                     collider);
             }
             
@@ -254,8 +354,8 @@ public class CablePhysics
             if (vDotN < 0f)
                 velocity -= direction * (vDotN * (1f + restitution));
 
-            float3 tangentVel = velocity - direction * math.dot(velocity, direction);
-            velocity -= tangentVel * friction;
+            float3 tangentVelocity = velocity - direction * math.dot(velocity, direction);
+            velocity -= tangentVelocity * friction;
 
             previousPositions[i] = positions[i] - velocity;
         }
