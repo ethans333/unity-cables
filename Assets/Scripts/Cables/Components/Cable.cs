@@ -46,11 +46,7 @@ public class Cable : MonoBehaviour
 
     private CablePhysics physics;
 
-    // Guards against re-entering Refresh()/Initialize() while already inside one -
-    // e.g. InitializePoints() -> AddSegment() -> Refresh() while the outer Initialize()
-    // that triggered it is still on the stack, or AddPoint()'s SetParent() synchronously
-    // firing OnTransformChildrenChanged() -> Refresh() before AddPoint() has finished
-    // mutating `points` itself. Without this, points can end up with duplicate entries.
+    // Guards against re-entering Refresh()/Initialize() while already inside one.
     private bool isRefreshing;
 
     private void Awake()
@@ -92,7 +88,13 @@ public class Cable : MonoBehaviour
         // Runtime.
         if (Application.isPlaying)
         {
-            PointsMoved();
+            if (PointsMoved())
+            {
+                spline.SetPoints(GetPointPositions());
+                CalculatePositionsAndTangentsFromSpline();
+                
+                physics.SetPinnedNodes(SampleSplineWorldPositions());
+            }
 
             for (int i = 0; i < simulationSubsteps; i++)
             {
@@ -154,6 +156,7 @@ public class Cable : MonoBehaviour
         // Physics.
         physics = new CablePhysics(SampleSplineWorldPositions(), radius, 0f, 0.3f);
         ConfigurePhysicsAnchors();
+        ConfigurePinnedNodes();
 
         // Spline.
         positions = new float3[resolution];
@@ -333,7 +336,7 @@ public class Cable : MonoBehaviour
 
     private void ConfigurePhysicsAnchors()
     {
-        // Pin certain nodes of the cable to the control points via physics anchors.
+        // Pin certain nodes of the cable to the cable points via physics anchors.
         for (int i = 0; i < points.Count; i++)
         {
             if (!points[i].isAnchor) continue;
@@ -342,6 +345,22 @@ public class Cable : MonoBehaviour
             int nodeIndex = Mathf.RoundToInt(t * (resolution - 1));
 
             physics.SetAnchor(nodeIndex, points[i].transform);
+        }
+    }
+
+    private void ConfigurePinnedNodes()
+    {
+        for (int i = 0; i < segments.Count; i++)
+        {
+            if (segments[i].mode != CableSegmentMode.Static) continue;
+
+            int startNode = Mathf.RoundToInt(i / (float)segments.Count * (resolution - 1));
+            int endNode = Mathf.RoundToInt((i + 1) / (float)segments.Count * (resolution - 1));
+
+            for (int n = startNode; n <= endNode; n++)
+            {
+                physics.PinNode(n);
+            }
         }
     }
 

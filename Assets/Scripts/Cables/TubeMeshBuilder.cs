@@ -75,14 +75,6 @@ public class TubeMeshBuilder
 
     private float3 CalculateNormal(float3 tangent)
     {
-        /*
-         * As your cable curves, this can cause the tube to rotate/twist unexpectedly.
-         * Once you see the basic tube rendering, the next thing I'd change is the frame
-         * calculation to use the previous ring's normal and transport it along the curve.
-         * That's the piece that will make your cable look stable and professional rather
-         * than like a tube whose orientation is being recalculated independently at every
-         * sample.
-         */
         float3 reference = math.up();
         float3 normal = math.normalize(math.cross(tangent, reference));
 

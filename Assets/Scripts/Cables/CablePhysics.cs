@@ -63,6 +63,25 @@ public class CablePhysics
         isPinned[nodeIndex] = anchor != null;
     }
 
+    public void PinNode(int nodeIndex)
+    {
+        isPinned[nodeIndex] = true;
+    }
+
+    public void SetPinnedNodes(float3[] newPositions)
+    {
+        if (newPositions.Length != positions.Length) return;
+        
+        for (int i = 0; i < positions.Length; i++)
+        {
+            if (isPinned[i])
+            {
+                positions[i] = newPositions[i];
+                previousPositions[i] = positions[i];
+            }
+        }
+    }
+
     public void SimulatePhysics(float dt)
     {
         if (dt <= 0f || nodeCount == 0) return;
