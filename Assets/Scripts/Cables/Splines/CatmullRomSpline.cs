@@ -102,13 +102,13 @@ public class CatmullRomSpline : ISpline
         );
     }
 
-    private Tuple<int, float> GetSegmentAndLocalT(float t)
+    private (int segment, float localT) GetSegmentAndLocalT(float t)
     {
         int   segmentCount = controlPoints.Count - 3;
         float scaled       = t * segmentCount;
         int   segment      = min((int)scaled, segmentCount - 1);
         float localT       = scaled - segment;
-        
-        return new Tuple<int, float>(segment, localT);
+
+        return (segment, localT);
     }
 }

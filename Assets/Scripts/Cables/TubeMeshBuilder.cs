@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using Unity.Mathematics;
 using UnityEngine;
 
@@ -23,15 +23,17 @@ public class TubeMeshBuilder
         
         mesh = new Mesh();
         mesh.MarkDynamic();
+        
+        vertices  = new List<Vector3>();
+        normals   = new List<Vector3>();
     }
     
     public Mesh Build(float3[] positions, float3[] tangents)
     {
         int segments = positions.Length;
-        int vertexCount = segments * sides;
-        
-        vertices  = new List<Vector3>(vertexCount);
-        normals   = new List<Vector3>(vertexCount);
+
+        vertices.Clear();
+        normals.Clear();
         
         for (int i = 0; i < segments; i++)
         {
@@ -75,10 +77,11 @@ public class TubeMeshBuilder
 
     private float3 CalculateNormal(float3 tangent)
     {
-        float3 reference = math.up();
-        float3 normal = math.normalize(math.cross(tangent, reference));
+        float3 reference = math.abs(math.dot(tangent, math.up())) > 0.99f
+            ? math.right()
+            : math.up();
 
-        return normal;
+        return math.normalize(math.cross(tangent, reference));
     }
 
     private void GenerateTriangles(int segments)

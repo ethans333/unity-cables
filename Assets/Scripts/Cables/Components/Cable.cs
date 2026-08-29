@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.Linq;
 using Unity.Mathematics;
 using UnityEngine;
@@ -40,6 +40,7 @@ public class Cable : MonoBehaviour
 
     private float3[] positions;
     private float3[] tangents;
+    private float3[] splineWorldPositions;
 
     private MeshFilter meshFilter;
     private TubeMeshBuilder meshBuilder;
@@ -153,14 +154,15 @@ public class Cable : MonoBehaviour
         meshFilter = GetComponent<MeshFilter>();
         meshBuilder = new TubeMeshBuilder(sides, radius);
 
+        // Spline.
+        positions = new float3[resolution];
+        tangents = new float3[resolution];
+        splineWorldPositions = new float3[resolution];
+
         // Physics.
         physics = new CablePhysics(SampleSplineWorldPositions(), radius, 0f, 0.3f);
         ConfigurePhysicsAnchors();
         ConfigurePinnedNodes();
-
-        // Spline.
-        positions = new float3[resolution];
-        tangents = new float3[resolution];
 
         CalculatePositionsAndTangentsFromSpline();
     }
@@ -256,13 +258,13 @@ public class Cable : MonoBehaviour
 
     private float3[] SampleSplineWorldPositions()
     {
-        float3[] result = new float3[resolution];
+        
         for (int i = 0; i < resolution; i++)
         {
             float t = i / (float)(resolution - 1);
-            result[i] = spline.EvaluatePosition(t);
+            splineWorldPositions[i] = spline.EvaluatePosition(t);
         }
-        return result;
+        return splineWorldPositions;
     }
 
     private void CalculatePositionsAndTangentsFromSpline()

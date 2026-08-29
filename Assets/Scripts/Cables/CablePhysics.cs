@@ -133,10 +133,7 @@ public class CablePhysics
     {
         for (int i = 1; i < nodeCount - 1; i++)
         {
-            bendRestLengths[i] =
-                math.distance(
-                    positions[i - 1],
-                    positions[i + 1]);
+            bendRestLengths[i] = math.distance(positions[i - 1], positions[i + 1]);
         }
     }
 
