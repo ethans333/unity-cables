@@ -1,77 +1,107 @@
-﻿using System.Collections.Generic;
+using System;
+using System.Collections.Generic;
+using Unity.Collections;
+using Unity.Jobs;
 using Unity.Mathematics;
 using UnityEngine;
 
-public class CablePhysics
+public struct CablePhysics : IDisposable
 {
-    public float3[] positions;
+    // Public — read directly by Cable when building the mesh.
+    public NativeArray<float3> positions;
 
-    private float3[] previousPositions;
-    private bool[] isPinned;
-    private float[] restLengths;
-    private float[] bendRestLengths;
-    private float[] bendStiffness;
+    // Internal — accessed via CreateSimulationJob so job structs stay decoupled
+    // from CablePhysics field layout.
+    internal NativeArray<float3> previousPositions;
+    internal NativeArray<bool>   isPinned;
+    internal NativeArray<float>  restLengths;
+    internal NativeArray<float>  bendRestLengths;
+    internal NativeArray<float>  bendStiffness;
 
-    private readonly int nodeCount;
-    private readonly float radius;
-    private readonly float restitution;
-    private readonly float friction;
+    private NativeArray<float3> collisionNormal;
+    private NativeArray<bool>   hadCollision;
 
-    private const int constraintIterations = 8;
-    private const float maxSpeed = 5f;
+    private readonly int       nodeCount;
+    private readonly float     radius;
+    private readonly float     restitution;
+    private readonly float     friction;
+    private readonly LayerMask collisionMask;
 
-    private const float velocityDamping = 0.01f;
+    // Exposed so Cable can forward them into the simulation job.
+    public int   constraintIterations;
+    public float velocityDamping;
+    public float maxSpeed;
 
-    private const float anchorBendStiffness = 0.9f;
-    private const int anchorBendFalloffNodes = 15;
+    // Anchors hold Transform references — managed objects that cannot live in a
+    // NativeArray. Call SnapshotAnchors() on the main thread each frame to copy
+    // their world positions into job-safe NativeArrays before scheduling.
+    private List<(int nodeIndex, Transform anchor)> anchors;
 
-    private readonly LayerMask collisionMask = ~0;
-    private static readonly Collider[] overlapBuffer = new Collider[16];
-    
-    private readonly List<(int nodeIndex, Transform anchor)> anchors = new();
-    
-    private float3[] collisionNormal;
-    private bool[] hadCollision;
-    
+    public int AnchorCount => anchors?.Count ?? 0;
+
+    private const float anchorBendStiffnessMax  = 0.9f;
+    private const int   anchorBendFalloffNodes  = 15;
+
+    private static readonly Collider[]        overlapBuffer   = new Collider[16];
     private static readonly HashSet<Collider> warnedColliders = new();
 
-    /// <param name="initialPositions">World-space positions for every simulation node,
-    /// one per segment. Sample these from your spline at construction time.</param>
-    /// <param name="restitution">How much the cable bounces when colliding with itself
-    /// or other colliders (jiggliness).</param>
+    /// <param name="initialPositions">World-space positions for every simulation node.</param>
+    /// <param name="restitution">Bounciness on collision impact.</param>
     public CablePhysics(float3[] initialPositions, float radius, float restitution, float friction)
     {
         nodeCount = initialPositions.Length;
-        positions = (float3[])initialPositions.Clone();
-        previousPositions = (float3[])initialPositions.Clone();
-        isPinned = new bool[nodeCount];
-        restLengths = new float[nodeCount - 1];
-        bendRestLengths = new float[nodeCount];
-        bendStiffness = new float[nodeCount];
 
-        this.radius = radius;
+        positions         = new NativeArray<float3>(nodeCount,     Allocator.Persistent);
+        previousPositions = new NativeArray<float3>(nodeCount,     Allocator.Persistent);
+        isPinned          = new NativeArray<bool>  (nodeCount,     Allocator.Persistent);
+        restLengths       = new NativeArray<float> (nodeCount - 1, Allocator.Persistent);
+        bendRestLengths   = new NativeArray<float> (nodeCount,     Allocator.Persistent);
+        bendStiffness     = new NativeArray<float> (nodeCount,     Allocator.Persistent);
+        collisionNormal   = new NativeArray<float3>(nodeCount,     Allocator.Persistent);
+        hadCollision      = new NativeArray<bool>  (nodeCount,     Allocator.Persistent);
+
+        for (int i = 0; i < nodeCount; i++)
+        {
+            positions[i]         = initialPositions[i];
+            previousPositions[i] = initialPositions[i];
+        }
+
+        this.radius      = radius;
         this.restitution = restitution;
-        this.friction = friction;
+        this.friction    = friction;
+        collisionMask    = ~0;
+        anchors          = new List<(int, Transform)>();
+
+        constraintIterations = 8;
+        velocityDamping      = 0.01f;
+        maxSpeed             = 5f;
 
         CalculateRestLengths();
         CalculateBendRestLengths();
     }
 
-    /// <summary>
-    /// Pins a node to follow a Transform exactly (e.g. cable endpoint attached to a
-    /// control point or socket). Pass null to release the pin.
-    /// </summary>
+    public void Dispose()
+    {
+        if (positions.IsCreated)         positions.Dispose();
+        if (previousPositions.IsCreated) previousPositions.Dispose();
+        if (isPinned.IsCreated)          isPinned.Dispose();
+        if (restLengths.IsCreated)       restLengths.Dispose();
+        if (bendRestLengths.IsCreated)   bendRestLengths.Dispose();
+        if (bendStiffness.IsCreated)     bendStiffness.Dispose();
+        if (collisionNormal.IsCreated)   collisionNormal.Dispose();
+        if (hadCollision.IsCreated)      hadCollision.Dispose();
+    }
+
+    // -------------------------------------------------------------------------
+    // Configuration
+    // -------------------------------------------------------------------------
+
+    /// <summary>Pins a node to follow a Transform. Pass null to release.</summary>
     public void SetAnchor(int nodeIndex, Transform anchor)
     {
         anchors.RemoveAll(a => a.nodeIndex == nodeIndex);
-
-        if (anchor)
-        {
-            anchors.Add((nodeIndex, anchor));
-        }
-
+        if (anchor) anchors.Add((nodeIndex, anchor));
         isPinned[nodeIndex] = anchor != null;
-
         ConfigureAnchorBendStiffness();
     }
 
@@ -80,230 +110,81 @@ public class CablePhysics
         isPinned[nodeIndex] = true;
     }
 
+    /// <summary>Teleports pinned nodes to match new spline samples (e.g. when a control point moves).</summary>
     public void SetPinnedNodes(float3[] newPositions)
     {
-        if (newPositions.Length != positions.Length) return;
-        
-        for (int i = 0; i < positions.Length; i++)
-        {
-            if (isPinned[i])
-            {
-                positions[i] = newPositions[i];
-                previousPositions[i] = positions[i];
-            }
-        }
-    }
-
-    public void SimulatePhysics(float dt)
-    {
-        if (dt <= 0f || nodeCount == 0) return;
-
-        collisionNormal ??= new float3[nodeCount];
-        hadCollision ??= new bool[nodeCount];
-        System.Array.Clear(hadCollision, 0, nodeCount);
-
-        ApplyAnchors();
-        VerletIntegrate(dt);
-
-        // Repeatedly relax the distance constraints and re-project out of colliders each
-        // iteration. This is what gives high fidelity without jitter - a single pass
-        // per substep leaves visible stretch/pop under fast motion or many segments.
-        // Collision handling here is POSITION-ONLY - velocity/restitution/friction are
-        // applied exactly once below, after the loop has converged, not on every pass.
-        for (int i = 0; i < constraintIterations; i++)
-        {
-            SolveDistanceConstraints();
-            SolveBendingConstraints();
-            ApplyAnchors();
-            ProjectOutOfColliders();
-        }
-
-        ApplyCollisionResponse();
-    }
-    
-    private void CalculateRestLengths()
-    {
-        for (int i = 0; i < nodeCount - 1; i++)
-        {
-            restLengths[i] = math.distance(positions[i], positions[i + 1]);
-        }
-    }
-
-    private void CalculateBendRestLengths()
-    {
-        for (int i = 1; i < nodeCount - 1; i++)
-        {
-            bendRestLengths[i] = math.distance(positions[i - 1], positions[i + 1]);
-        }
-    }
-
-    private void ConfigureAnchorBendStiffness()
-    {
-        System.Array.Clear(bendStiffness, 0, bendStiffness.Length);
-
-        foreach (var (anchorNode, _) in anchors)
-        {
-            for (int i = 1; i < nodeCount - 1; i++)
-            {
-                int distanceFromAnchor = math.abs(i - anchorNode);
-
-                if (distanceFromAnchor > anchorBendFalloffNodes)
-                {
-                    continue;
-                }
-
-                float t = distanceFromAnchor / (float)anchorBendFalloffNodes;
-
-                float stiffness = 1f - math.smoothstep(0f, 1f, t);
-
-                stiffness *= anchorBendStiffness;
-
-                bendStiffness[i] = math.max(bendStiffness[i], stiffness);
-            }
-        }
-    }
-
-    private void ApplyAnchors()
-    {
-        foreach (var (nodeIndex, anchor) in anchors)
-        {
-            positions[nodeIndex] = anchor.position;
-            previousPositions[nodeIndex] = anchor.position;
-        }
-    }
-
-    private void VerletIntegrate(float dt)
-    {
-        float3 gravity = Physics.gravity;
-        float dtSq = dt * dt;
+        if (newPositions.Length != nodeCount) return;
 
         for (int i = 0; i < nodeCount; i++)
         {
-            if (isPinned[i]) continue;
-
-            float3 current = positions[i];
-            float3 velocity = (current - previousPositions[i]) * (1f - velocityDamping);
-
-            float speed = math.length(velocity);
-            float maxStep = maxSpeed * dt;
-            if (speed > maxStep && speed > 0f)
-                velocity *= maxStep / speed;
-
-            float3 next = current + velocity + gravity * dtSq;
-
-            previousPositions[i] = current;
-            positions[i] = next;
+            if (!isPinned[i]) continue;
+            positions[i]         = newPositions[i];
+            previousPositions[i] = newPositions[i];
         }
     }
 
-    private void SolveDistanceConstraints()
+    // -------------------------------------------------------------------------
+    // Job scheduling helpers
+    // -------------------------------------------------------------------------
+
+    /// <summary>
+    /// Copies current anchor Transform positions into job-safe NativeArrays.
+    /// Must be called on the main thread before scheduling a simulation job.
+    /// outPositions and outIndices must be allocated with at least AnchorCount entries.
+    /// </summary>
+    public void SnapshotAnchors(NativeArray<float3> outPositions, NativeArray<int> outIndices, out int count)
     {
-        for (int i = 0; i < nodeCount - 1; i++)
+        count = anchors.Count;
+        for (int i = 0; i < count; i++)
         {
-            bool aPinned = isPinned[i];
-            bool bPinned = isPinned[i + 1];
-            if (aPinned && bPinned) continue;
-
-            float3 a = positions[i];
-            float3 b = positions[i + 1];
-
-            float3 delta = b - a;
-            float dist = math.length(delta);
-            if (dist < 1e-6f) continue;
-
-            float error = (dist - restLengths[i]) / dist;
-            float3 correction = delta * error * 0.5f;
-
-            if (aPinned)
-            {
-                positions[i + 1] -= correction * 2f;
-            }
-            else if (bPinned)
-            {
-                positions[i] += correction * 2f;
-            }
-            else
-            {
-                positions[i] += correction;
-                positions[i + 1] -= correction;
-            }
+            outPositions[i] = anchors[i].anchor.position;
+            outIndices[i]   = anchors[i].nodeIndex;
         }
     }
 
-    private void SolveBendingConstraints()
+    /// <summary>
+    /// Returns a configured simulation job ready to be scheduled.
+    /// Complete the job handle, then call ProjectOutOfColliders and
+    /// ApplyCollisionResponse on the main thread.
+    /// </summary>
+    public CableSimulationJob CreateSimulationJob(
+        float dt, float3 gravity,
+        NativeArray<float3> anchorPositions,
+        NativeArray<int>    anchorNodeIndices,
+        int                 anchorCount)
     {
-        for (int i = 1; i < nodeCount - 1; i++)
+        return new CableSimulationJob
         {
-            float stiffness = bendStiffness[i];
-
-            if (stiffness <= 0f) continue;
-
-            bool aPinned = isPinned[i - 1];
-            bool bPinned = isPinned[i];
-            bool cPinned = isPinned[i + 1];
-
-            if (aPinned && bPinned && cPinned) continue;
-
-            float3 a = positions[i - 1];
-            float3 c = positions[i + 1];
-
-            float3 delta = c - a;
-            float distance = math.length(delta);
-
-            if (distance < 1e-6f) continue;
-
-            float restDistance = bendRestLengths[i];
-            float error = (distance - restDistance) / distance;
-            float3 correction = delta * error * 0.5f * stiffness;
-
-            if (aPinned && !cPinned)
-            {
-                positions[i + 1] -= correction * 2f;
-            }
-            else if (cPinned && !aPinned)
-            {
-                positions[i - 1] += correction * 2f;
-            }
-            else if (!aPinned && !cPinned)
-            {
-                positions[i - 1] += correction;
-                positions[i + 1] -= correction;
-            }
-        }
+            positions            = positions,
+            previousPositions    = previousPositions,
+            isPinned             = isPinned,
+            restLengths          = restLengths,
+            bendRestLengths      = bendRestLengths,
+            bendStiffness        = bendStiffness,
+            anchorPositions      = anchorPositions,
+            anchorNodeIndices    = anchorNodeIndices,
+            nodeCount            = nodeCount,
+            anchorCount          = anchorCount,
+            constraintIterations = constraintIterations,
+            dt                   = dt,
+            gravity              = gravity,
+            velocityDamping      = velocityDamping,
+            maxSpeed             = maxSpeed,
+        };
     }
 
-    // Collider.ClosestPoint only supports Box/Sphere/Capsule and CONVEX MeshColliders.
-    // Called on anything else (e.g. a raw, non-convex ground/terrain MeshCollider) it
-    // silently returns the query point itself - which our solver was reading as "dead
-    // center inside the collider" every iteration and shoving the node up by a full
-    // radius each time. That degenerate case was the actual cause of the boiling.
-    private static bool TryGetClosestPoint(Collider collider, Vector3 point, out Vector3 closest)
-    {
-        if (collider is MeshCollider mesh && !mesh.convex)
-        {
-            if (warnedColliders.Add(collider))
-            {
-                Debug.LogWarning(
-                    $"CablePhysics: '{collider.name}' is a non-convex MeshCollider, which doesn't " +
-                    $"support accurate closest-point queries. Enable 'Convex' on it (fine for simple/" +
-                    $"flat shapes) or swap in a Box/Sphere/Capsule collider for anything the cable " +
-                    $"should collide with. Falling back to a coarse bounds-based approximation for now.",
-                    collider);
-            }
-            
-            closest = collider.bounds.ClosestPoint(point);
-            return true;
-        }
+    // -------------------------------------------------------------------------
+    // Collision — main-thread only (Physics API)
+    // -------------------------------------------------------------------------
 
-        closest = collider.ClosestPoint(point);
-        return true;
-    }
-
-    // Pure position correction - pushes penetrating nodes out of colliders and records
-    // the contact normal, but never touches previousPositions/velocity. Safe to call
-    // repeatedly within the constraint-iteration loop without injecting energy.
-    private void ProjectOutOfColliders()
+    /// <summary>
+    /// Projects penetrating nodes out of colliders and records contact normals.
+    /// Call on the main thread after the simulation job completes, once per substep.
+    /// </summary>
+    public void ProjectOutOfColliders()
     {
+        ClearArray(hadCollision);
+
         for (int i = 0; i < nodeCount; i++)
         {
             if (isPinned[i]) continue;
@@ -318,17 +199,16 @@ public class CablePhysics
                 Collider other = overlapBuffer[c];
                 if (!TryGetClosestPoint(other, position, out Vector3 closest)) continue;
 
-                Vector3 offset = position - closest;
-                float distance = offset.magnitude;
+                Vector3 offset   = position - closest;
+                float   distance = offset.magnitude;
 
                 if (distance < radius)
                 {
                     Vector3 direction = distance > 0.0001f ? offset / distance : Vector3.up;
-                    float penetration = radius - distance;
-                    position += direction * penetration;
+                    position += direction * (radius - distance);
 
                     collisionNormal[i] = direction;
-                    hadCollision[i] = true;
+                    hadCollision[i]    = true;
                 }
             }
 
@@ -336,25 +216,90 @@ public class CablePhysics
         }
     }
 
-    // Applies restitution + friction exactly once per substep, using the final resolved
-    // position and the contact normal recorded during the iteration loop.
-    private void ApplyCollisionResponse()
+    /// <summary>
+    /// Applies restitution and friction using contact normals from ProjectOutOfColliders.
+    /// Call immediately after ProjectOutOfColliders on the main thread.
+    /// </summary>
+    public void ApplyCollisionResponse()
     {
         for (int i = 0; i < nodeCount; i++)
         {
             if (isPinned[i] || !hadCollision[i]) continue;
 
             float3 direction = collisionNormal[i];
-            float3 velocity = positions[i] - previousPositions[i];
+            float3 velocity  = positions[i] - previousPositions[i];
 
             float vDotN = math.dot(velocity, direction);
             if (vDotN < 0f)
                 velocity -= direction * (vDotN * (1f + restitution));
 
-            float3 tangentVelocity = velocity - direction * math.dot(velocity, direction);
-            velocity -= tangentVelocity * friction;
+            velocity -= (velocity - direction * math.dot(velocity, direction)) * friction;
 
             previousPositions[i] = positions[i] - velocity;
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // Private
+    // -------------------------------------------------------------------------
+
+    private void CalculateRestLengths()
+    {
+        for (int i = 0; i < nodeCount - 1; i++)
+            restLengths[i] = math.distance(positions[i], positions[i + 1]);
+    }
+
+    private void CalculateBendRestLengths()
+    {
+        for (int i = 1; i < nodeCount - 1; i++)
+            bendRestLengths[i] = math.distance(positions[i - 1], positions[i + 1]);
+    }
+
+    private void ConfigureAnchorBendStiffness()
+    {
+        ClearArray(bendStiffness);
+
+        foreach (var (anchorNode, _) in anchors)
+        {
+            for (int i = 1; i < nodeCount - 1; i++)
+            {
+                int distanceFromAnchor = math.abs(i - anchorNode);
+                if (distanceFromAnchor > anchorBendFalloffNodes) continue;
+
+                float t         = distanceFromAnchor / (float)anchorBendFalloffNodes;
+                float stiffness = (1f - math.smoothstep(0f, 1f, t)) * anchorBendStiffnessMax;
+                bendStiffness[i] = math.max(bendStiffness[i], stiffness);
+            }
+        }
+    }
+
+
+    // Collider.ClosestPoint only supports Box/Sphere/Capsule and CONVEX MeshColliders.
+    private static bool TryGetClosestPoint(Collider collider, Vector3 point, out Vector3 closest)
+    {
+        if (collider is MeshCollider mesh && !mesh.convex)
+        {
+            if (warnedColliders.Add(collider))
+                Debug.LogWarning(
+                    $"CablePhysics: '{collider.name}' is a non-convex MeshCollider. " +
+                    "Enable 'Convex' or replace with a primitive collider.",
+                    collider);
+
+            closest = collider.bounds.ClosestPoint(point);
+            return true;
+        }
+
+        closest = collider.ClosestPoint(point);
+        return true;
+    }
+
+    private static void ClearArray(NativeArray<bool> array)
+    {
+        for (int i = 0; i < array.Length; i++) array[i] = false;
+    }
+
+    private static void ClearArray(NativeArray<float> array)
+    {
+        for (int i = 0; i < array.Length; i++) array[i] = 0f;
     }
 }
