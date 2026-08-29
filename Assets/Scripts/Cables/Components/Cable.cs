@@ -26,6 +26,9 @@ public class Cable : MonoBehaviour
 
     // Physics.
     [SerializeField]
+    private bool simulatePhysics = true;
+    
+    [SerializeField]
     [Range(1, 200)]
     private int simulationSubsteps = 20;
 
@@ -83,7 +86,7 @@ public class Cable : MonoBehaviour
 
     private void Update()
     {
-        if (points == null || previousPointPositions == null || physics == null)
+        if (points == null || previousPointPositions == null)
             return;
 
         // Runtime.
@@ -93,16 +96,26 @@ public class Cable : MonoBehaviour
             {
                 spline.SetPoints(GetPointPositions());
                 CalculatePositionsAndTangentsFromSpline();
-                
-                physics.SetPinnedNodes(SampleSplineWorldPositions());
+
+                if (simulatePhysics)
+                {
+                    physics.SetPinnedNodes(SampleSplineWorldPositions());
+                }
+                else
+                {
+                    BuildMesh();
+                }
             }
 
-            for (int i = 0; i < simulationSubsteps; i++)
+            if (simulatePhysics)
             {
-                physics.SimulatePhysics(Time.deltaTime / simulationSubsteps);
-            }
+                for (int i = 0; i < simulationSubsteps; i++)
+                {
+                    physics.SimulatePhysics(Time.deltaTime / simulationSubsteps);
+                }
 
-            BuildMeshFromPhysics();
+                BuildMeshFromPhysics();
+            }
         }
         // In editor.
         else
@@ -160,10 +173,13 @@ public class Cable : MonoBehaviour
         splineWorldPositions = new float3[resolution];
 
         // Physics.
-        physics = new CablePhysics(SampleSplineWorldPositions(), radius, 0f, 0.3f);
-        ConfigurePhysicsAnchors();
-        ConfigurePinnedNodes();
-
+        if (simulatePhysics)
+        {
+            physics = new CablePhysics(SampleSplineWorldPositions(), radius, 0f, 0.3f);
+            ConfigurePhysicsAnchors();
+            ConfigurePinnedNodes();
+        }
+        
         CalculatePositionsAndTangentsFromSpline();
     }
 
