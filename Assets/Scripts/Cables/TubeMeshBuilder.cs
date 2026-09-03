@@ -15,6 +15,11 @@ public class TubeMeshBuilder
     private List<int>     triangles;
 
     private int previousSegments;
+
+    private float3 lastPosition;
+    private float3 lastTangent;
+    private float3 lastNormal;
+    private bool   hasFrame;
     
     public TubeMeshBuilder(int sides, float radius)
     {
@@ -34,12 +39,15 @@ public class TubeMeshBuilder
 
         vertices.Clear();
         normals.Clear();
+
+        hasFrame = false;
         
         for (int i = 0; i < segments; i++)
         {
             float3 position = positions[i];
-            float3 tangent  = tangents[i];
-            float3 normal   = CalculateNormal(tangent);
+            float3 tangent  = math.normalize(tangents[i]);
+
+            float3 normal = GetNextNormal(position, tangent);
             float3 binormal = math.cross(tangent, normal);
 
             for (int j = 0; j < sides; j++)
@@ -75,7 +83,50 @@ public class TubeMeshBuilder
         return mesh;
     }
 
-    private float3 CalculateNormal(float3 tangent)
+    private float3 GetNextNormal(float3 position, float3 tangent)
+    {
+        if (!hasFrame)
+        {
+            lastNormal = CalculateInitialNormal(tangent);
+            lastPosition = position;
+            lastTangent = tangent;
+            hasFrame = true;
+            return lastNormal;
+        }
+
+        float3 t0 = lastTangent;
+        float3 r0 = lastNormal;
+        float3 x0 = lastPosition;
+        float3 x1 = position;
+        float3 t1 = tangent;
+
+        float3 v1 = x1 - x0;
+        float c1 = math.dot(v1, v1);
+
+        float3 rL = c1 > 1e-12f
+            ? r0 - (2f / c1) * math.dot(v1, r0) * v1
+            : r0;
+        float3 tL = c1 > 1e-12f
+            ? t0 - (2f / c1) * math.dot(v1, t0) * v1
+            : t0;
+
+        float3 v2 = t1 - tL;
+        float c2 = math.dot(v2, v2);
+
+        float3 r1 = c2 > 1e-12f
+            ? rL - (2f / c2) * math.dot(v2, rL) * v2
+            : rL;
+
+        r1 = math.normalize(r1 - t1 * math.dot(r1, t1));
+
+        lastPosition = position;
+        lastTangent = tangent;
+        lastNormal = r1;
+
+        return r1;
+    }
+
+    private float3 CalculateInitialNormal(float3 tangent)
     {
         float3 reference = math.abs(math.dot(tangent, math.up())) > 0.99f
             ? math.right()
