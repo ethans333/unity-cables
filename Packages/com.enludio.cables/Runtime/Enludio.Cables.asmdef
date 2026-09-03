@@ -2,9 +2,6 @@
   "name": "Enludio.Cables",
   "rootNamespace": "Enludio.Cables",
   "references": [
-    "Unity.Burst",
-    "Unity.Mathematics",
-    "Unity.Collections",
-    "Unity.Splines"
+    "Unity.Burst"
   ]
 }
