@@ -1,5 +1,16 @@
 {
   "dependencies": {
+    "com.enludio.cables": {
+      "version": "file:com.enludio.cables",
+      "depth": 0,
+      "source": "embedded",
+      "dependencies": {
+        "com.unity.burst": "1.8.29",
+        "com.unity.collections": "6.5.0",
+        "com.unity.mathematics": "1.4.0",
+        "com.unity.splines": "2.9.0"
+      }
+    },
     "com.unity.ai.navigation": {
       "version": "2.0.14",
       "depth": 0,
@@ -11,7 +22,7 @@
     },
     "com.unity.burst": {
       "version": "1.8.29",
-      "depth": 2,
+      "depth": 1,
       "source": "registry",
       "dependencies": {
         "com.unity.mathematics": "1.2.1",
@@ -74,7 +85,7 @@
     },
     "com.unity.mathematics": {
       "version": "1.4.0",
-      "depth": 3,
+      "depth": 1,
       "source": "builtin",
       "dependencies": {}
     },
@@ -129,6 +140,13 @@
       "dependencies": {},
       "url": "https://packages.unity.com"
     },
+    "com.unity.settings-manager": {
+      "version": "2.1.1",
+      "depth": 2,
+      "source": "registry",
+      "dependencies": {},
+      "url": "https://packages.unity.com"
+    },
     "com.unity.shadergraph": {
       "version": "17.5.0",
       "depth": 1,
@@ -137,6 +155,17 @@
         "com.unity.render-pipelines.core": "17.5.0",
         "com.unity.searcher": "4.9.3"
       }
+    },
+    "com.unity.splines": {
+      "version": "2.9.0",
+      "depth": 1,
+      "source": "registry",
+      "dependencies": {
+        "com.unity.mathematics": "1.2.1",
+        "com.unity.modules.imgui": "1.0.0",
+        "com.unity.settings-manager": "1.0.3"
+      },
+      "url": "https://packages.unity.com"
     },
     "com.unity.test-framework": {
       "version": "1.7.0",

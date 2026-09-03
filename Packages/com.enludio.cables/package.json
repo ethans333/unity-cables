@@ -1,0 +1,13 @@
+{
+  "name": "com.enludio.cables",
+  "version": "0.1.0",
+  "displayName": "Enludio Cables",
+  "description": "Dynamic physics-based cable system for Unity.",
+  "unity": "6000.0",
+  "dependencies": {
+    "com.unity.burst": "1.8.29",
+    "com.unity.collections": "6.5.0",
+    "com.unity.mathematics": "1.4.0",
+    "com.unity.splines": "2.9.0"
+  }
+}
