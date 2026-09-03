@@ -1,0 +1,8 @@
+{
+  "name": "estein.Cables",
+  "rootNamespace": "estein.Cables",
+  "references": [
+    "Unity.Burst",
+    "Unity.Mathematics"
+  ]
+}

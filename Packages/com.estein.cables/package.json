@@ -1,0 +1,12 @@
+{
+  "name": "com.estein.cables",
+  "version": "0.1.0",
+  "displayName": "Unity Cables",
+  "description": "Dynamic physics-based cable system for Unity.",
+  "author": "Ethan Stein",
+  "unity": "6000.0",
+  "dependencies": {
+    "com.unity.burst": "1.8.29",
+    "com.unity.mathematics": "1.3.3"
+  }
+}

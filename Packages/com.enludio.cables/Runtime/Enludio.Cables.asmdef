@@ -1,7 +1,0 @@
-{
-  "name": "Enludio.Cables",
-  "rootNamespace": "Enludio.Cables",
-  "references": [
-    "Unity.Burst"
-  ]
-}
